@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -c 2  # Number of Cores per MPI Task
+#SBATCH -c 4  # Number of Cores per MPI Task
 #SBATCH --job-name=kalypso-build  # Number of Cores per MPI Task
 #SBATCH -N 1 # Number of Nodes
 #SBATCH --account=pi_ece590d_690d_umass_edu
