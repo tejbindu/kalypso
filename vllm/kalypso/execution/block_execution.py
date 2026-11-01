@@ -205,8 +205,14 @@ async def execute_filter_chain(
 
     async def produce_source() -> None:
         first = plan.operators[0]
-        for call in pack_source_rows(rows, first, runtime, new_block_id):
-            await enqueue(0, call)
+        source_calls = iter(pack_source_rows(rows, first, runtime, new_block_id))
+        pending_call = next(source_calls, None)
+        while pending_call is not None:
+            next_call = next(source_calls, None)
+            await enqueue(0, pending_call)
+            if next_call is None and len(pending_call.block.active_positions) < first.config.block.max_rows:
+                stats.final_tails += 1
+            pending_call = next_call
         for _ in range(first.config.block.concurrency):
             await enqueue(0, stop)
 

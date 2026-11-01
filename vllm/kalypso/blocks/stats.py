@@ -16,6 +16,7 @@ class BlockExecutionStats:
     empty_blocks_bypassed: int = 0
     fit_splits: int = 0
     singleton_blocks: int = 0
+    final_tails: int = 0
     calls_submitted: int = 0
     calls_completed: int = 0
     calls_failed: int = 0

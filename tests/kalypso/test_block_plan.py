@@ -15,6 +15,13 @@ def test_tuple_plan_is_left_for_existing_planner():
     ) is None
 
 
+def test_non_filter_execution_arguments_do_not_change_legacy_tuple_classification():
+    assert compile_block_filter_plan(
+        [{"op": "join", "args": {"execution": "legacy-option"}}],
+        blocking=False,
+    ) is None
+
+
 def test_block_filters_compile_as_a_separate_plan_before_tuple_lowering():
     plan = compile_block_filter_plan(
         [block_filter(), block_filter("keep only recent rows")],
@@ -32,7 +39,7 @@ def test_block_filters_compile_as_a_separate_plan_before_tuple_lowering():
         ([block_filter(), {"op": "sem_map", "args": {"prompt": "map"}}], False),
         ([block_filter()], True),
         ([{"op": "sem_filter", "args": {"prompt": "p", "execution": "block", "cascade": True}}], False),
-        ([{"op": "join", "args": {"execution": "block"}}], False),
+        ([block_filter(), {"op": "join", "args": {"execution": "block"}}], False),
     ],
 )
 def test_unsupported_block_plan_shapes_fail_during_preflight(logical_ops, blocking):

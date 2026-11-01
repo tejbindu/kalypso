@@ -100,6 +100,7 @@ def test_source_rows_pack_tails_filter_and_preserve_original_contexts():
     assert result.stats.query_id == "query-test"
     assert result.stats.input_rows == 3
     assert result.stats.output_rows == 1
+    assert result.stats.final_tails == 1
     assert result.stats.prompt_tokens > 0
     assert result.stats.queue_peak["0"] <= 2
 

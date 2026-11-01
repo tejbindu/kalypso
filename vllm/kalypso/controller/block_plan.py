@@ -26,10 +26,6 @@ def compile_block_filter_plan(
         if not isinstance(args, dict):
             raise BlockConfigurationError("operator args must be an object", position)
         if name != "sem_filter":
-            if "execution" in args:
-                raise BlockConfigurationError(
-                    "execution is supported only on sem_filter", position
-                )
             parsed.append((position, None, args))
             continue
 
