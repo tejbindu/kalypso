@@ -9,6 +9,7 @@ from vllm.kalypso.execution.pipeline_execution import PlanExecutor
 from vllm.kalypso.controller.map_estimator import MapRatioEstimator
 from .stage import Stage, Task, stage_builder
 from .block_plan import BlockFilterPlan, compile_block_filter_plan
+from vllm.kalypso.blocks.errors import BlockConfigurationError
 from vllm.kalypso.execution.block_execution import execute_filter_chain
 from vllm.kalypso.sem_ops.block_filter import BlockRuntime
 
@@ -558,11 +559,13 @@ class SemanticPlan:
         try:
             tokenizer = await engine_client.get_tokenizer()
         except Exception as exc:
-            raise ValueError("serving tokenizer is unavailable for block execution") from exc
+            raise BlockConfigurationError(
+                "serving tokenizer is unavailable for block execution"
+            ) from exc
 
         serving_chat = getattr(app_state, "openai_serving_chat", None)
         if serving_chat is None or not hasattr(serving_chat, "chat_template"):
-            raise ValueError("effective serving chat template is unavailable")
+            raise BlockConfigurationError("effective serving chat template is unavailable")
         model_config = app_state.vllm_config.model_config
         kv_manager = KVMemoryManager.get_instance()
         runtime = BlockRuntime(

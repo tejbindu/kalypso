@@ -636,11 +636,29 @@ async def semantic_query(
     print('query called')
 
     processor = raw_request.app.state.query_processor
-    out_ctxs = await processor.execute(
-        raw_request,
-        _query,
-        blocking=sem_request.blocking,
+    from vllm.kalypso.blocks.errors import (
+        BlockConfigurationError,
+        BlockExecutionError,
+        BlockOutputError,
+        BlockSizingError,
     )
+
+    try:
+        execution_result = await processor.execute(
+            raw_request,
+            _query,
+            blocking=sem_request.blocking,
+        )
+    except (BlockConfigurationError, BlockSizingError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except BlockOutputError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except BlockExecutionError as exc:
+        status_code = exc.status_code if exc.status_code and exc.status_code >= 400 else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    out_ctxs = getattr(execution_result, "contexts", execution_result)
+    block_stats = getattr(execution_result, "stats", None)
 
     results = []
     for ctx in out_ctxs:
@@ -662,7 +680,7 @@ async def semantic_query(
         )
 
     elapsed = asyncio.get_running_loop().time() - started
-    return {
+    response = {
         "request_id": uuid.uuid4().hex,
         "model_name": processor.model_name,
         "data_path": sem_request.data_path,
@@ -672,6 +690,9 @@ async def semantic_query(
         "latency_sec": round(elapsed, 3),
         "results": results,
     }
+    if block_stats is not None:
+        response["block_stats"] = block_stats.to_dict()
+    return response
 
 
 @router.post("/v1/semantic/query_ref")
