@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 
 @dataclass
 class BlockExecutionStats:
+    query_id: str | None = None
     input_rows: int = 0
     output_rows: int = 0
     input_envelopes: int = 0

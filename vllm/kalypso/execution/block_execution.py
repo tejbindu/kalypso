@@ -67,9 +67,11 @@ async def execute_filter_chain(
     runtime: BlockRuntime,
     new_block_id: Callable[[str | None], str],
     stats: BlockExecutionStats | None = None,
+    query_id: str | None = None,
 ) -> BlockExecutionResult:
     """Run a bounded concurrent filter pipeline and adapt final survivors."""
     stats = stats or BlockExecutionStats()
+    stats.query_id = query_id
     started_at = monotonic()
     if not plan.operators:
         return BlockExecutionResult(list(contexts), stats)

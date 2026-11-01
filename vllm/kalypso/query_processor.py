@@ -187,6 +187,7 @@ class QueryProcessor:
         )
         owner_key = str(id(raw_request))
         query_id = f"query-{uuid4().hex}"
+        query.query_id = query_id
         started_at = monotonic()
         kv_before = self._kv_metric_snapshot()
         # Each query registers its own stages; drop those of earlier queries so

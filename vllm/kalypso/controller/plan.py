@@ -584,4 +584,10 @@ class SemanticPlan:
         def new_block_id(parent_block_id):
             return f"b{next(block_ids)}"
 
-        return await execute_filter_chain(plan, contexts, runtime, new_block_id)
+        return await execute_filter_chain(
+            plan,
+            contexts,
+            runtime,
+            new_block_id,
+            query_id=getattr(query, "query_id", None),
+        )

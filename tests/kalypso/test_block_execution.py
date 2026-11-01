@@ -85,7 +85,9 @@ def test_source_rows_pack_tails_filter_and_preserve_original_contexts():
         return block_id
 
     result = asyncio.run(
-        execute_filter_chain(plan, contexts, runtime(executor), new_block_id)
+        execute_filter_chain(
+            plan, contexts, runtime(executor), new_block_id, query_id="query-test"
+        )
     )
     outputs = result.contexts
 
@@ -95,6 +97,7 @@ def test_source_rows_pack_tails_filter_and_preserve_original_contexts():
     assert [item["SemFilter"]["operator_position"] for item in outputs[0].output] == [0, 1]
     assert contexts[2].output == []
     assert result.stats.calls_completed == 4
+    assert result.stats.query_id == "query-test"
     assert result.stats.input_rows == 3
     assert result.stats.output_rows == 1
     assert result.stats.prompt_tokens > 0
@@ -299,5 +302,59 @@ def test_failed_stage_cancels_workers_and_releases_acquired_leases():
             execute_filter_chain(plan, contexts, block_runtime, lambda _parent: "b")
         )
 
+    assert memory.active == 0
+    assert memory.allocations == memory.releases
+
+
+def test_cancellation_releases_active_memory_reservations():
+    class TrackingManager:
+        def __init__(self):
+            self.active = 0
+            self.allocations = 0
+            self.releases = 0
+
+        async def allocate(self, amount):
+            self.active += amount
+            self.allocations += 1
+
+        async def release(self, amount):
+            self.active -= amount
+            self.releases += 1
+
+    class WaitingExecutor:
+        def __init__(self):
+            self.started = asyncio.Event()
+
+        async def complete_tokens(self, **kwargs):
+            self.started.set()
+            await asyncio.Event().wait()
+
+    contexts = [make_context("row", index) for index in range(2)]
+    plan = compile_block_filter_plan(
+        [
+            {
+                "op": "sem_filter",
+                "args": {
+                    "prompt": "all", "execution": "block",
+                    "block": {"max_rows": 1, "concurrency": 2, "queue_capacity": 1},
+                },
+            }
+        ],
+        blocking=False,
+    )
+    executor = WaitingExecutor()
+    memory = TrackingManager()
+    block_runtime = runtime(executor, memory)
+
+    async def cancel_run():
+        task = asyncio.create_task(
+            execute_filter_chain(plan, contexts, block_runtime, lambda _parent: "b")
+        )
+        await asyncio.wait_for(executor.started.wait(), timeout=2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(cancel_run())
     assert memory.active == 0
     assert memory.allocations == memory.releases
