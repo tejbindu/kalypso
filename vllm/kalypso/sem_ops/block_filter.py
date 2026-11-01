@@ -14,8 +14,11 @@ from vllm.kalypso.blocks.filter_protocol import (
 )
 from vllm.kalypso.blocks.types import (
     BlockBatch,
+    BlockEnvelope,
+    BlockRow,
     FilterBlockResult,
     PreparedBlockCall,
+    RowMessage,
     validate_batch,
 )
 
@@ -131,6 +134,24 @@ class BlockFilter:
             max_output_tokens=max_output_tokens,
             estimated_kv_bytes=estimated_kv_bytes,
         )
+
+    def preflight(self, runtime: BlockRuntime) -> None:
+        """Validate static prompt/template/context limits before reading input."""
+        probe = BlockBatch(
+            BlockEnvelope(
+                block_id="preflight",
+                parent_block_id=None,
+                rows=(BlockRow("r-preflight", (RowMessage("user", ""),)),),
+            ),
+            active_positions=(0,),
+        )
+        try:
+            self.prepare(probe, runtime)
+        except BlockSizingError as exc:
+            raise BlockConfigurationError(
+                "filter instruction and protocol exceed the configured request limits",
+                self.position,
+            ) from exc
 
     async def evaluate(
         self, call: PreparedBlockCall | BlockBatch, runtime: BlockRuntime

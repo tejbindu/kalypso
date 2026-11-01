@@ -578,6 +578,8 @@ class SemanticPlan:
             kv_capacity_bytes=kv_manager.capacity(),
             memory_manager=kv_manager,
         )
+        for operator in plan.operators:
+            operator.preflight(runtime)
         contexts = list(data._data_source(raw_request, query.data_path, self.executor))
         block_ids = count()
 

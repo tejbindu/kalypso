@@ -138,3 +138,20 @@ def test_prepare_rejects_oversized_prompt_and_context_without_truncation():
     )
     with pytest.raises(BlockSizingError, match="effective limit"):
         make_filter().prepare(make_call().block, runtime)
+
+
+def test_runtime_preflight_validates_template_without_submitting_model_work():
+    tokenizer = FakeTokenizer()
+    executor = FakeExecutor("not used")
+    runtime = BlockRuntime(
+        executor=executor,
+        raw_request=object(),
+        tokenizer=tokenizer,
+        max_model_len=2048,
+        bytes_per_token=8,
+    )
+
+    make_filter().preflight(runtime)
+
+    assert len(tokenizer.calls) == 1
+    assert executor.calls == []
