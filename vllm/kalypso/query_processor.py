@@ -57,6 +57,7 @@ class QueryProcessor:
         self._last_unpin_at = 0.0
         self._consecutive_stuck_checks = 0
         self._consecutive_timeout_checks = 0
+        self._semantic_query_lock = asyncio.Lock()
 
     @classmethod
     def _kv_metric_snapshot(cls) -> dict[str, float]:
@@ -164,6 +165,15 @@ class QueryProcessor:
 
  
     async def execute(
+        self,
+        raw_request,
+        query: Query,
+        blocking: bool | None = None,
+    ):
+        async with self._semantic_query_lock:
+            return await self._execute_locked(raw_request, query, blocking)
+
+    async def _execute_locked(
         self,
         raw_request,
         query: Query,

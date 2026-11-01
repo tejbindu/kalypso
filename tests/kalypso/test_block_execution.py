@@ -105,3 +105,68 @@ def test_duplicate_values_and_duplicate_idx_remain_distinct_rows():
     assert len(executor.calls) == 1
     assert len(outputs) == 2
     assert [ctx.state.idx for ctx in outputs] == [4, 4]
+
+
+def test_two_filter_stages_overlap_across_distinct_source_blocks():
+    class MarkingTokenizer:
+        def apply_chat_template(self, messages, **kwargs):
+            marker = 1 if "Predicate: slow" in messages[1]["content"] else 2
+            return [marker, 42]
+
+    class OverlapExecutor:
+        def __init__(self):
+            self.slow_started = asyncio.Event()
+            self.release_slow = asyncio.Event()
+            self.downstream_started = asyncio.Event()
+
+        async def complete_tokens(self, **kwargs):
+            marker = kwargs["prompt_token_ids"][0]
+            row_ids = kwargs["json_schema"]["properties"]["decisions"]["items"]["properties"]["id"]["enum"]
+            if marker == 1 and row_ids[0] == "r0":
+                self.slow_started.set()
+                await self.release_slow.wait()
+            if marker == 2 and row_ids[0] == "r2":
+                self.downstream_started.set()
+            return SimpleNamespace(
+                text=json.dumps(
+                    {"decisions": [{"id": row_id, "passed": True} for row_id in row_ids]}
+                ),
+                request_id=f"req-{marker}-{row_ids[0]}",
+                finish_reason="stop",
+            )
+
+    contexts = [make_context(f"row {index}", index) for index in range(4)]
+    stage_config = {
+        "max_rows": 2,
+        "concurrency": 2,
+        "queue_capacity": 1,
+    }
+    plan = compile_block_filter_plan(
+        [
+            {"op": "sem_filter", "args": {"prompt": "slow", "execution": "block", "block": stage_config}},
+            {"op": "sem_filter", "args": {"prompt": "downstream", "execution": "block", "block": stage_config}},
+        ],
+        blocking=False,
+    )
+    executor = OverlapExecutor()
+    block_runtime = BlockRuntime(
+        executor=executor,
+        raw_request=object(),
+        tokenizer=MarkingTokenizer(),
+        max_model_len=4096,
+        bytes_per_token=4,
+        kv_capacity_bytes=100_000,
+    )
+
+    async def run_and_observe():
+        run_task = asyncio.create_task(
+            execute_filter_chain(plan, contexts, block_runtime, lambda parent: f"b-{parent or 'source'}")
+        )
+        await asyncio.wait_for(executor.slow_started.wait(), timeout=2)
+        await asyncio.wait_for(executor.downstream_started.wait(), timeout=2)
+        assert not executor.release_slow.is_set()
+        executor.release_slow.set()
+        return await run_task
+
+    outputs = asyncio.run(run_and_observe())
+    assert len(outputs) == 4

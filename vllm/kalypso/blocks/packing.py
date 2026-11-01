@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 
 from vllm.kalypso.blocks.errors import BlockSizingError
 from vllm.kalypso.blocks.types import (
@@ -34,8 +34,7 @@ def _greedy_pack(
     runtime: BlockRuntime,
     new_block_id: BlockIdFactory,
     parent_block_id: str | None,
-) -> list[PreparedBlockCall]:
-    prepared: list[PreparedBlockCall] = []
+) -> Iterator[PreparedBlockCall]:
     pending: list[BlockRow] = []
     pending_id: str | None = None
     pending_call: PreparedBlockCall | None = None
@@ -44,7 +43,7 @@ def _greedy_pack(
     for row in rows:
         if len(pending) >= max_rows:
             assert pending_call is not None
-            prepared.append(pending_call)
+            yield pending_call
             pending, pending_id, pending_call = [], None, None
 
         block_id = pending_id or new_block_id(parent_block_id)
@@ -57,7 +56,7 @@ def _greedy_pack(
             if not pending:
                 raise
             assert pending_call is not None
-            prepared.append(pending_call)
+            yield pending_call
             pending, pending_id, pending_call = [], None, None
             block_id = new_block_id(parent_block_id)
             try:
@@ -76,8 +75,7 @@ def _greedy_pack(
             pending_call = candidate_call
 
     if pending_call is not None:
-        prepared.append(pending_call)
-    return prepared
+        yield pending_call
 
 
 def pack_source_rows(
@@ -85,7 +83,7 @@ def pack_source_rows(
     operator: BlockFilter,
     runtime: BlockRuntime,
     new_block_id: BlockIdFactory,
-) -> list[PreparedBlockCall]:
+) -> Iterator[PreparedBlockCall]:
     """Pack source rows in order, flushing a valid partial tail."""
     return _greedy_pack(rows, operator, runtime, new_block_id, None)
 
@@ -95,20 +93,21 @@ def split_selection(
     operator: BlockFilter,
     runtime: BlockRuntime,
     new_block_id: BlockIdFactory,
-) -> list[PreparedBlockCall]:
+) -> Iterator[PreparedBlockCall]:
     """Split one incoming selection stably without merging envelopes."""
     active_rows = tuple(
         batch.envelope.rows[position] for position in batch.active_positions
     )
     if not active_rows:
-        return []
+        return
     if len(active_rows) <= operator.config.block.max_rows:
         try:
-            return [operator.prepare(batch, runtime)]
+            yield operator.prepare(batch, runtime)
+            return
         except BlockSizingError:
             if len(active_rows) == 1:
                 raise
-    return _greedy_pack(
+    yield from _greedy_pack(
         active_rows,
         operator,
         runtime,

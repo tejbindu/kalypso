@@ -45,6 +45,7 @@ class BlockRuntime:
     max_model_len: int | None = None
     bytes_per_token: int | None = None
     kv_capacity_bytes: int | None = None
+    memory_manager: Any = None
 
 
 class BlockFilter:
