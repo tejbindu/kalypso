@@ -191,6 +191,9 @@ CLAUDE.md
 AGENTS.md
 .codex/
 
+# Local environment configuration may contain credentials.
+.envrc
+
 # DS Store
 .DS_Store
 
