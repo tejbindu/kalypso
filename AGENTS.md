@@ -6,6 +6,7 @@ These instructions apply to all agents working in this repository, including Lun
 
 - Develop in small, focused increments that are easy to understand and review. Each approved increment should form a coherent commit.
 - Keep code clean and follow the repository's conventions and established best practices.
+- Add functions and helpers alongside their first real caller. Avoid commits that introduce unused runtime functions ahead of the feature path that will use them; keep implementation history in the order a reader can follow it.
 - Add comments wherever they help explain intent, assumptions, invariants, or non-obvious behavior. Comments may be as detailed as necessary.
 - Run focused checks appropriate to each increment and report their results and any limitations.
 - Keep implementation plans and design discussions in `plans/`; consult the relevant approved design before implementing.
