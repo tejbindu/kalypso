@@ -175,6 +175,11 @@ async def execute_filter_chain(
                         stats.request_wall_seconds += monotonic() - request_started
                         stats.calls_completed += 1
                         stats.evaluated_blocks += 1
+                        usage = result.usage if isinstance(result.usage, dict) else {}
+                        if type(usage.get("prompt_tokens")) is int:
+                            stats.actual_prompt_tokens += usage["prompt_tokens"]
+                        if type(usage.get("completion_tokens")) is int:
+                            stats.actual_output_tokens += usage["completion_tokens"]
                         if result.finish_reason is not None:
                             reason = result.finish_reason
                             stats.finish_reasons[reason] = (

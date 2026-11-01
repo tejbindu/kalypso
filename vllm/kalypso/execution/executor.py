@@ -3,10 +3,11 @@ from abc import ABC, abstractmethod
 
 
 class CompletionResult:
-    def __init__(self, text: str, request_id: str, finish_reason):
+    def __init__(self, text: str, request_id: str, finish_reason, usage=None):
         self.text = text
         self.request_id = request_id
         self.finish_reason = finish_reason
+        self.usage = usage
 
 
 class LLMExecutor(ABC):

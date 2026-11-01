@@ -54,6 +54,7 @@ class FilterBlockResult:
     decisions: tuple[FilterDecision, ...]
     request_id: str | None = None
     finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
 
 
 def source_row(row_id: str, messages: tuple[RowMessage, ...], *, right_data=()) -> BlockRow:

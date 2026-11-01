@@ -22,6 +22,8 @@ class BlockExecutionStats:
     calls_failed: int = 0
     prompt_tokens: int = 0
     reserved_output_tokens: int = 0
+    actual_prompt_tokens: int = 0
+    actual_output_tokens: int = 0
     request_wall_seconds: float = 0.0
     admission_wait_seconds: float = 0.0
     queue_wait_seconds: float = 0.0

@@ -47,6 +47,7 @@ def test_complete_tokens_submits_prepared_request_and_returns_metadata():
                 {
                     "id": "request-7",
                     "choices": [{"text": '{"ok":true}', "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 4},
                 }
             ).encode(),
         )
@@ -70,6 +71,7 @@ def test_complete_tokens_submits_prepared_request_and_returns_metadata():
         "request-7",
         "stop",
     )
+    assert result.usage == {"prompt_tokens": 2, "completion_tokens": 4}
 
 
 def test_complete_tokens_surfaces_serving_error_status_without_response_body():

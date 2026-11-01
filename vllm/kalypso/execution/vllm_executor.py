@@ -266,12 +266,13 @@ class VLLMExecutor(LLMExecutor):
             request_id = data["id"]
             text = choice["text"]
             finish_reason = choice.get("finish_reason")
+            usage = data.get("usage")
         except (KeyError, IndexError, TypeError) as exc:
             raise BlockExecutionError(
                 "structured completion response is missing its result",
                 status_code=status_code,
             ) from exc
-        return CompletionResult(text, request_id, finish_reason)
+        return CompletionResult(text, request_id, finish_reason, usage=usage)
 
     async def unpin(self, raw_request: Request, request_id: str):
         engine = raw_request.app.state.engine_client

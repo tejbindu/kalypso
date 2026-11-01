@@ -191,4 +191,5 @@ class BlockFilter:
             decisions=decisions,
             request_id=completion.request_id,
             finish_reason=completion.finish_reason,
+            usage=getattr(completion, "usage", None),
         )

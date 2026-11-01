@@ -27,7 +27,13 @@ class FakeExecutor:
         self.calls.append(kwargs)
         body = {"decisions": [{"id": row_id, "passed": row_id in prompt} for row_id in ids]}
         return SimpleNamespace(
-            text=json.dumps(body), request_id=f"req-{len(self.calls)}", finish_reason="stop"
+            text=json.dumps(body),
+            request_id=f"req-{len(self.calls)}",
+            finish_reason="stop",
+            usage={
+                "prompt_tokens": len(kwargs["prompt_token_ids"]),
+                "completion_tokens": 2,
+            },
         )
 
 
@@ -97,6 +103,7 @@ def test_source_rows_pack_tails_filter_and_preserve_original_contexts():
     assert [item["SemFilter"]["operator_position"] for item in outputs[0].output] == [0, 1]
     assert contexts[2].output == []
     assert result.stats.calls_completed == 4
+    assert result.stats.actual_output_tokens == 8
     assert result.stats.query_id == "query-test"
     assert result.stats.input_rows == 3
     assert result.stats.output_rows == 1
