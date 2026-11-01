@@ -1,6 +1,5 @@
 # execution/executor.py
 from abc import ABC, abstractmethod
-from typing import Optional
 
 
 class CompletionResult:
@@ -11,6 +10,18 @@ class CompletionResult:
 
 
 class LLMExecutor(ABC):
+    @abstractmethod
+    async def complete_tokens(
+        self,
+        raw_request,
+        prompt_token_ids: tuple[int, ...],
+        json_schema: dict,
+        max_tokens: int,
+        priority: int = 0,
+    ) -> CompletionResult:
+        """Complete exact token IDs using constrained JSON output."""
+        pass
+
     @abstractmethod
     async def complete(
         self,

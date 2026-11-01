@@ -42,8 +42,14 @@ class BlockOutputError(BlockFilterError):
 class BlockExecutionError(BlockFilterError):
     """An engine or block-pipeline operation failed."""
 
-    def __init__(self, message: str, block_id: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        block_id: str | None = None,
+        status_code: int | None = None,
+    ):
         self.block_id = block_id
         self.reason = message
+        self.status_code = status_code
         location = f" for block {block_id}" if block_id is not None else ""
         super().__init__(f"Block execution failed{location}: {message}")

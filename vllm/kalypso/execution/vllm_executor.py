@@ -2,6 +2,8 @@
 import json
 from fastapi import Request
 from vllm.entrypoints.openai.protocol import CompletionRequest, ChatCompletionRequest
+from vllm.kalypso.blocks.config import MAX_SUPPORTED_OUTPUT_TOKENS
+from vllm.kalypso.blocks.errors import BlockExecutionError
 from vllm.kalypso.pin_registry import PinnedRequestRegistry
 
 from .executor import LLMExecutor, CompletionResult
@@ -55,6 +57,35 @@ class VLLMExecutor(LLMExecutor):
             repetition_penalty=1.3,
             priority=priority,
             vllm_xargs={"pinned": pin},
+        )
+
+    def _build_token_request(
+        self,
+        prompt_token_ids: tuple[int, ...],
+        json_schema: dict,
+        max_tokens: int,
+        priority: int,
+    ) -> CompletionRequest:
+        if not prompt_token_ids:
+            raise ValueError("token-ID completion requires a nonempty prompt")
+        if any(type(token_id) is not int or token_id < 0 for token_id in prompt_token_ids):
+            raise ValueError("prompt_token_ids must contain nonnegative integers")
+        if type(max_tokens) is not int or not 0 < max_tokens <= MAX_SUPPORTED_OUTPUT_TOKENS:
+            raise ValueError(
+                f"max_tokens must be between 1 and {MAX_SUPPORTED_OUTPUT_TOKENS}"
+            )
+        return CompletionRequest(
+            model=self.model,
+            prompt=list(prompt_token_ids),
+            max_tokens=max_tokens,
+            temperature=0.0,
+            seed=42,
+            top_p=1.0,
+            frequency_penalty=0.0,
+            repetition_penalty=1.0,
+            priority=priority,
+            structured_outputs={"json": json_schema},
+            vllm_xargs={"pinned": False},
         )
 
     async def execute(
@@ -192,6 +223,54 @@ class VLLMExecutor(LLMExecutor):
             request_id=request_id,
             finish_reason=data["choices"][0].get("finish_reason", ""),
         )
+
+    async def complete_tokens(
+        self,
+        raw_request: Request,
+        prompt_token_ids: tuple[int, ...],
+        json_schema: dict,
+        max_tokens: int,
+        priority: int = 0,
+    ) -> CompletionResult:
+        """Submit exact prepared IDs with neutral decoding and JSON schema."""
+        from vllm.entrypoints.openai.api_server import create_completion
+
+        req = self._build_token_request(
+            prompt_token_ids, json_schema, max_tokens, priority
+        )
+        self._log(
+            "[vllm-exec] submit kind=structured-token-completion "
+            f"prompt_tokens={len(prompt_token_ids)} max_tokens={max_tokens} "
+            f"priority={priority}"
+        )
+        gen = await create_completion(request=req, raw_request=raw_request)
+        if gen is None:
+            raise ClientDisconnectedError("client disconnected; LLM call cancelled")
+
+        status_code = getattr(gen, "status_code", 200)
+        try:
+            data = json.loads(gen.body.decode("utf-8"))
+        except (AttributeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise BlockExecutionError(
+                "structured completion returned an unreadable response",
+                status_code=status_code,
+            ) from exc
+        if status_code >= 400 or "error" in data:
+            raise BlockExecutionError(
+                "structured completion request failed",
+                status_code=status_code,
+            )
+        try:
+            choice = data["choices"][0]
+            request_id = data["id"]
+            text = choice["text"]
+            finish_reason = choice.get("finish_reason")
+        except (KeyError, IndexError, TypeError) as exc:
+            raise BlockExecutionError(
+                "structured completion response is missing its result",
+                status_code=status_code,
+            ) from exc
+        return CompletionResult(text, request_id, finish_reason)
 
     async def unpin(self, raw_request: Request, request_id: str):
         engine = raw_request.app.state.engine_client
