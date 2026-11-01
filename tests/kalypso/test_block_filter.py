@@ -32,6 +32,8 @@ def make_call(active_positions=(0, 1)):
         for index in range(2)
     )
     batch = BlockBatch(BlockEnvelope("b0", None, rows), active_positions)
+    if not active_positions:
+        return batch
     ids = tuple(rows[position].row_id for position in active_positions)
     return PreparedBlockCall(batch, (1, 2, 3), decision_schema(ids), 64, 256)
 

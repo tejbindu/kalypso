@@ -7,6 +7,7 @@ from vllm.kalypso.budget import KVMemoryManager
 from vllm.kalypso.execution.pipeline_execution import PlanExecutor
 from vllm.kalypso.controller.map_estimator import MapRatioEstimator
 from .stage import Stage, Task, stage_builder
+from .block_plan import BlockFilterPlan, compile_block_filter_plan
 
 class SemanticPlan:
     ESTIMATED_CTX_SAMPLE_SIZE = 100
@@ -517,7 +518,13 @@ class SemanticPlan:
         
 
     async def execute(self, raw_request, query: Query):
-        
+        block_plan = compile_block_filter_plan(
+            query.ops,
+            blocking=self.blocking,
+        )
+        if block_plan is not None:
+            return await self.execute_block_filter_plan(raw_request, query, block_plan)
+
         ctxs = list(data._data_source(raw_request, query.data_path, self.executor))
         MapRatioEstimator.instance()
         physical_ops = self.parse_ops(query.ops)
@@ -536,3 +543,11 @@ class SemanticPlan:
             print(f"[query] CascadeOperator stats={cascade_stats}")
         print(f'len(out){len(out)}')
         return out 
+
+    async def execute_block_filter_plan(
+        self,
+        raw_request,
+        query: Query,
+        plan: BlockFilterPlan,
+    ):
+        raise NotImplementedError("block-filter plan execution is not implemented yet")

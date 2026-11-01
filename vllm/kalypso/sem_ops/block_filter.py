@@ -45,15 +45,17 @@ class BlockFilter:
         self.position = position
 
     async def evaluate(
-        self, call: PreparedBlockCall, runtime: BlockRuntime
+        self, call: PreparedBlockCall | BlockBatch, runtime: BlockRuntime
     ) -> FilterBlockResult:
-        batch = call.block
+        batch = call.block if isinstance(call, PreparedBlockCall) else call
         validate_batch(batch)
         row_ids = tuple(
             batch.envelope.rows[position].row_id for position in batch.active_positions
         )
         if not row_ids:
             return FilterBlockResult(block=batch, decisions=())
+        if not isinstance(call, PreparedBlockCall):
+            raise TypeError("a nonempty block must be prepared before evaluation")
 
         completion = await runtime.executor.complete_tokens(
             raw_request=runtime.raw_request,
