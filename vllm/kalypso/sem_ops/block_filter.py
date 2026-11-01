@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from vllm.kalypso.blocks.config import BlockFilterConfig
-from vllm.kalypso.blocks.filter_protocol import parse_filter_response
+from vllm.kalypso.blocks.errors import BlockConfigurationError, BlockSizingError
+from vllm.kalypso.blocks.filter_protocol import (
+    block_filter_messages,
+    decision_schema,
+    parse_filter_response,
+)
 from vllm.kalypso.blocks.types import (
     BlockBatch,
     FilterBlockResult,
@@ -35,6 +40,11 @@ class BlockRuntime:
     executor: TokenCompletion
     raw_request: object
     priority: int = 0
+    tokenizer: Any = None
+    chat_template: str | None = None
+    max_model_len: int | None = None
+    bytes_per_token: int | None = None
+    kv_capacity_bytes: int | None = None
 
 
 class BlockFilter:
@@ -43,6 +53,83 @@ class BlockFilter:
     def __init__(self, config: BlockFilterConfig, position: int):
         self.config = config
         self.position = position
+
+    def prepare(self, batch: BlockBatch, runtime: BlockRuntime) -> PreparedBlockCall:
+        """Render once with the serving template and budget the exact token IDs."""
+        validate_batch(batch)
+        if not batch.active_positions:
+            raise BlockConfigurationError("empty selections do not need preparation")
+        if len(batch.active_positions) > self.config.block.max_rows:
+            raise BlockSizingError(
+                f"block has {len(batch.active_positions)} active rows; "
+                f"limit is {self.config.block.max_rows}"
+            )
+        if runtime.tokenizer is None:
+            raise BlockConfigurationError("serving tokenizer is unavailable", self.position)
+        if runtime.max_model_len is None or runtime.max_model_len <= 0:
+            raise BlockConfigurationError("served max_model_len is unavailable", self.position)
+        if runtime.bytes_per_token is None or runtime.bytes_per_token <= 0:
+            raise BlockConfigurationError("KV bytes-per-token estimate is unavailable", self.position)
+
+        max_output_tokens = self.config.block.max_output_tokens
+        prompt_limit = min(
+            self.config.block.max_prompt_tokens,
+            runtime.max_model_len - max_output_tokens,
+        )
+        if prompt_limit <= 0:
+            raise BlockConfigurationError(
+                "max_output_tokens leaves no room for an input prompt", self.position
+            )
+
+        row_ids = tuple(
+            batch.envelope.rows[position].row_id for position in batch.active_positions
+        )
+        messages = block_filter_messages(self.config.prompt, batch)
+        try:
+            rendered = runtime.tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                chat_template=runtime.chat_template,
+            )
+            token_ids = tuple(rendered)
+        except Exception as exc:
+            raise BlockConfigurationError(
+                "could not render block prompt with the serving chat template",
+                self.position,
+            ) from exc
+        if not token_ids or any(type(token_id) is not int for token_id in token_ids):
+            raise BlockConfigurationError(
+                "serving tokenizer did not return a nonempty token-ID sequence",
+                self.position,
+            )
+        if len(token_ids) > prompt_limit:
+            row_id = row_ids[0] if len(row_ids) == 1 else None
+            raise BlockSizingError(
+                f"rendered prompt has {len(token_ids)} tokens; effective limit is "
+                f"{prompt_limit} (configured={self.config.block.max_prompt_tokens}, "
+                f"served_context={runtime.max_model_len}, output_reserved={max_output_tokens})",
+                row_id,
+            )
+        estimated_kv_bytes = (
+            len(token_ids) + max_output_tokens
+        ) * runtime.bytes_per_token
+        if (
+            runtime.kv_capacity_bytes is not None
+            and estimated_kv_bytes > runtime.kv_capacity_bytes
+        ):
+            raise BlockSizingError(
+                f"request reserves {estimated_kv_bytes} KV bytes; total capacity is "
+                f"{runtime.kv_capacity_bytes}",
+                row_ids[0] if len(row_ids) == 1 else None,
+            )
+        return PreparedBlockCall(
+            block=batch,
+            prompt_token_ids=token_ids,
+            json_schema=decision_schema(row_ids),
+            max_output_tokens=max_output_tokens,
+            estimated_kv_bytes=estimated_kv_bytes,
+        )
 
     async def evaluate(
         self, call: PreparedBlockCall | BlockBatch, runtime: BlockRuntime

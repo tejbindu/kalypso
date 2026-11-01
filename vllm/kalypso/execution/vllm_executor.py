@@ -81,6 +81,7 @@ class VLLMExecutor(LLMExecutor):
             temperature=0.0,
             seed=42,
             top_p=1.0,
+            add_special_tokens=False,
             frequency_penalty=0.0,
             repetition_penalty=1.0,
             priority=priority,

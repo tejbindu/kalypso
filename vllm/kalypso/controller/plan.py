@@ -1,4 +1,5 @@
 import random
+from itertools import count
 
 from vllm.kalypso.sem_ops import OpBehavior, OpName, ops
 from vllm.kalypso.query import Query
@@ -8,6 +9,8 @@ from vllm.kalypso.execution.pipeline_execution import PlanExecutor
 from vllm.kalypso.controller.map_estimator import MapRatioEstimator
 from .stage import Stage, Task, stage_builder
 from .block_plan import BlockFilterPlan, compile_block_filter_plan
+from vllm.kalypso.execution.block_execution import execute_filter_chain
+from vllm.kalypso.sem_ops.block_filter import BlockRuntime
 
 class SemanticPlan:
     ESTIMATED_CTX_SAMPLE_SIZE = 100
@@ -550,4 +553,31 @@ class SemanticPlan:
         query: Query,
         plan: BlockFilterPlan,
     ):
-        raise NotImplementedError("block-filter plan execution is not implemented yet")
+        app_state = raw_request.app.state
+        engine_client = app_state.engine_client
+        try:
+            tokenizer = await engine_client.get_tokenizer()
+        except Exception as exc:
+            raise ValueError("serving tokenizer is unavailable for block execution") from exc
+
+        serving_chat = getattr(app_state, "openai_serving_chat", None)
+        if serving_chat is None or not hasattr(serving_chat, "chat_template"):
+            raise ValueError("effective serving chat template is unavailable")
+        model_config = app_state.vllm_config.model_config
+        kv_manager = KVMemoryManager.get_instance()
+        runtime = BlockRuntime(
+            executor=self.executor,
+            raw_request=raw_request,
+            tokenizer=tokenizer,
+            chat_template=serving_chat.chat_template,
+            max_model_len=model_config.max_model_len,
+            bytes_per_token=kv_manager.bytes_per_token,
+            kv_capacity_bytes=kv_manager.capacity(),
+        )
+        contexts = list(data._data_source(raw_request, query.data_path, self.executor))
+        block_ids = count()
+
+        def new_block_id(parent_block_id):
+            return f"b{next(block_ids)}"
+
+        return await execute_filter_chain(plan, contexts, runtime, new_block_id)

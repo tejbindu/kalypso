@@ -2,7 +2,10 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from vllm.kalypso.blocks.config import BlockFilterConfig
+from vllm.kalypso.blocks.errors import BlockSizingError
 from vllm.kalypso.blocks.filter_protocol import decision_schema
 from vllm.kalypso.blocks.types import (
     BlockBatch,
@@ -24,6 +27,16 @@ class FakeExecutor:
         return SimpleNamespace(
             text=self.response, request_id="request-1", finish_reason="stop"
         )
+
+
+class FakeTokenizer:
+    def __init__(self, token_ids=(11, 12, 13)):
+        self.token_ids = token_ids
+        self.calls = []
+
+    def apply_chat_template(self, messages, **kwargs):
+        self.calls.append((messages, kwargs))
+        return list(self.token_ids)
 
 
 def make_call(active_positions=(0, 1)):
@@ -87,3 +100,41 @@ def test_negation_controls_survivors_only_after_validation():
 
     assert result.block.active_positions == (1,)
     assert [decision.passed for decision in result.decisions] == [False, True]
+
+
+def test_prepare_uses_exact_serving_template_tokens_and_reserves_output_budget():
+    tokenizer = FakeTokenizer()
+    runtime = BlockRuntime(
+        executor=FakeExecutor(""),
+        raw_request=object(),
+        tokenizer=tokenizer,
+        chat_template="server-template",
+        max_model_len=2048,
+        bytes_per_token=8,
+    )
+    call = make_filter().prepare(make_call().block, runtime)
+
+    assert call.prompt_token_ids == (11, 12, 13)
+    assert call.max_output_tokens == 1024
+    assert call.estimated_kv_bytes == (3 + 1024) * 8
+    messages, kwargs = tokenizer.calls[0]
+    assert [message["role"] for message in messages] == ["system", "user", "user"]
+    assert kwargs == {
+        "tokenize": True,
+        "add_generation_prompt": True,
+        "chat_template": "server-template",
+    }
+    assert 'row 0' in messages[2]["content"]
+
+
+def test_prepare_rejects_oversized_prompt_and_context_without_truncation():
+    tokenizer = FakeTokenizer(token_ids=range(100))
+    runtime = BlockRuntime(
+        executor=FakeExecutor(""),
+        raw_request=object(),
+        tokenizer=tokenizer,
+        max_model_len=1100,
+        bytes_per_token=8,
+    )
+    with pytest.raises(BlockSizingError, match="effective limit"):
+        make_filter().prepare(make_call().block, runtime)
